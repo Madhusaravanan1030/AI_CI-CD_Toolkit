@@ -1,0 +1,41 @@
+name: Intelligent Test Selection
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  select-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.event.pull_request.base.ref }}
+
+      - name: Select impacted tests
+        id: select
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BASE_SHA: origin/${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: HEAD
+        run: python -m test_selector.main
+
+      - name: Run selected tests
+        if: steps.select.outputs.run_full_suite == 'false'
+        run: pytest ${{ steps.select.outputs.test_paths }} -v
+
+      - name: Run full suite (fallback)
+        if: steps.select.outputs.run_full_suite == 'true'
+        run: pytest -v
