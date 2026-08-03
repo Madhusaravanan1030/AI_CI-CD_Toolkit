@@ -9,7 +9,15 @@ import os
 import time
 from typing import Any
 
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
+
+# Errors where retrying is pointless: the request will never succeed
+# without the user taking action first (billing, bad key, etc).
+NON_RETRYABLE_CODES = {
+    "insufficient_quota",       # no credits / exhausted balance
+    "invalid_api_key",
+    "invalid_request_error",
+}
 
 
 class LLMClient:
@@ -25,8 +33,9 @@ class LLMClient:
     ) -> dict[str, Any]:
         """
         Calls the model with JSON-mode enabled and returns a parsed dict.
-        Retries on transient errors and on invalid JSON (rare with JSON
-        mode, but the model can still return an empty/malformed body).
+        Retries on transient errors (rate limits, brief outages, invalid
+        JSON) but fails immediately on non-retryable errors like an
+        exhausted billing balance or a bad API key.
         """
         last_err: Exception | None = None
         for attempt in range(max_retries):
@@ -42,7 +51,19 @@ class LLMClient:
                 )
                 content = response.choices[0].message.content
                 return json.loads(content)
-            except (json.JSONDecodeError, Exception) as e:  # noqa: BLE001
+            except APIStatusError as e:
+                code = getattr(getattr(e, "body", None), "get", lambda *_: None)("code") \
+                    if isinstance(getattr(e, "body", None), dict) else None
+                if code in NON_RETRYABLE_CODES or e.status_code in (401, 403):
+                    raise RuntimeError(
+                        f"OpenAI request failed with a non-retryable error "
+                        f"({code or e.status_code}): {e}. "
+                        f"Check your API key and billing balance at "
+                        f"https://platform.openai.com/settings/organization/billing"
+                    ) from e
+                last_err = e
+                time.sleep(min(2**attempt, 8))
+            except json.JSONDecodeError as e:
                 last_err = e
                 time.sleep(min(2**attempt, 8))
         raise RuntimeError(f"LLM call failed after {max_retries} attempts: {last_err}")
