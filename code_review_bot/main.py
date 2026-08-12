@@ -43,7 +43,7 @@ def main() -> int:
     SKIP_SUFFIXES = (".lock", ".min.js", ".svg", ".png", ".jpg", ".jpeg")
     file_diffs = [f for f in file_diffs if not f.path.endswith(SKIP_SUFFIXES)]
 
-    llm = LLMClient(model=os.environ.get("REVIEW_MODEL", "gpt-4o"))
+    llm = LLMClient()  # picks up LLM_MODEL / LLM_API_KEY / LLM_BASE_URL from env
     reviewer = Reviewer(llm)
     findings = reviewer.review_files(file_diffs)
 
