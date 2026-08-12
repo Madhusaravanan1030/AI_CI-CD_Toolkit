@@ -34,10 +34,18 @@ def main() -> int:
         return 0
 
     llm = None
-    if os.environ.get("OPENAI_API_KEY"):
+    use_semantic_fallback = False
+    if os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY"):
         llm = LLMClient()
+        use_semantic_fallback = llm.supports_embeddings
+        if not use_semantic_fallback:
+            print("Note: current provider has no embeddings endpoint (e.g. Groq free "
+                  "tier) — skipping semantic fallback. Static import-graph selection "
+                  "still runs normally.")
 
-    result = select_tests(repo_root, changed_files, llm=llm)
+    result = select_tests(
+        repo_root, changed_files, llm=llm, use_semantic_fallback=use_semantic_fallback
+    )
 
     print(result.reason)
     if result.run_full_suite:
